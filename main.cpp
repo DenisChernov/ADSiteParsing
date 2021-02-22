@@ -1,9 +1,15 @@
-#define CURL_STATICLIB // используется статическая сборка библиотеки
+#ifdef WIN32
+    #define CURL_STATICLIB // используется статическая сборка библиотеки
+#endif
 
 #include <cstdio>
 #include <curl/curl.h>
-#include <winsock2.h> // Wincosk2.h должен быть раньше windows!
-#include <windows.h>
+
+#ifdef WIN32
+    #include <winsock2.h> // Wincosk2.h должен быть раньше windows!
+    #include <windows.h>
+#endif
+
 #include <iostream>
 #include <cstring>
 #include <regex>
@@ -12,6 +18,7 @@
 #include <fstream>
 #include <vector>
 
+#ifdef WIN32
 #ifdef _DEBUG
 #pragma comment(lib,"libcurld.lib")
 #else
@@ -21,8 +28,7 @@
 #pragma comment (lib, "crypt32")
 #pragma comment(lib,"ws2_32.lib")  // Зависимость от WinSocks2
 #pragma comment(lib,"wldap32.lib")
-
-#define GET_PAGE_
+#endif
 
 using namespace std;
 
@@ -181,7 +187,9 @@ vector<offer> getOffersOnPage(const string& buffer) {
 }
 
 int main() {
+#ifdef WIN32
     SetConsoleOutputCP(CP_UTF8);
+#endif
 
     vector<page> pages;
     ifstream in("nedvizhimost.log", ios::binary);
