@@ -6,7 +6,6 @@
 #include <curl/curl.h>
 
 #ifdef WIN32
-    #include <winsock2.h> // Wincosk2.h должен быть раньше windows!
     #include <windows.h>
 #endif
 
@@ -25,12 +24,18 @@
 #pragma comment(lib,"libcurl.lib")
 #endif
 
-#pragma comment (lib, "crypt32")
+#pragma comment(lib, "crypt32")
 #pragma comment(lib,"ws2_32.lib")  // Зависимость от WinSocks2
 #pragma comment(lib,"wldap32.lib")
 #endif
 
 using namespace std;
+
+enum WORK_TYPES {
+    TEST,
+    PARSE_URL,
+    PARSE_LOCAL
+};
 
 struct itemAddress {
     string address;
@@ -58,7 +63,6 @@ struct page {
     string href;
     int pageNum{};
 };
-
 
 size_t callbackWriteBufer(char *ptr, size_t size, size_t nmemb, string *data) {
     if (data) {
@@ -88,8 +92,8 @@ page findPageCount(const string& buffer) {
     return p;
 }
 
-vector<offer> getOffersOnPage(const string& buffer) {
-    vector<offer> offers;
+void getOffersOnPage(const string& buffer, vector<offer>* offers) {
+
     smatch item_match;
     smatch match;
     const regex offerItem("(data-marker=\"item\")");
@@ -133,6 +137,11 @@ vector<offer> getOffersOnPage(const string& buffer) {
         } else {
             item.pageTitle.clear();
         }
+
+        /** TODO:
+         *    Сбор всех превью.
+         *
+        */
 
         if (regex_search(searchStart, offerEnd, match, itemPreviewThumb)) {
             searchStart = match.suffix().first;
@@ -180,17 +189,11 @@ vector<offer> getOffersOnPage(const string& buffer) {
             item.lastUpdate.clear();
         }
 
-        offers.push_back(item);
+        offers->push_back(item);
     }
-
-    return offers;
 }
 
-int main() {
-#ifdef WIN32
-    SetConsoleOutputCP(CP_UTF8);
-#endif
-
+int testParsing() {
     vector<page> pages;
     ifstream in("nedvizhimost.log", ios::binary);
     if (!in.is_open()) {
@@ -202,7 +205,7 @@ int main() {
             perror("curl init error");
             curl_global_cleanup();
 
-            return 0;
+            return -1;
         }
         const string url = "https://www.avito.ru/murmansk/kvartiry/prodam-ASgBAgICAUSSA8YQ";
         string buffer;
@@ -228,20 +231,13 @@ int main() {
             curl_easy_cleanup(curl);
             curl_global_cleanup();
 
-            return 0;
+            return -1;
         }
 
         size_t posStart = buffer.find("data-marker=\"item\"");
         size_t posEnd = buffer.find("Рекомендованные объявления");
         buffer = buffer.substr(posStart, buffer.length() - (posStart + posEnd));
 
-        const regex pagination("pagination-page\".href=\"([\\w\\/\\?=0-9]*)\"");
-        smatch match;
-        string::const_iterator searchStart = buffer.cbegin();
-        while (regex_search(searchStart, buffer.cend(), match, pagination)) {
-            searchStart = match.suffix().first;
-            cout << "match: " << match[1] << endl;
-        }
         FILE *page;
         fopen_s(&page, "nedvizhimost.log", "wb");
         fwrite(buffer.c_str(), 1, buffer.length(), page);
@@ -259,12 +255,146 @@ int main() {
         string buffer = buf;
 
         const page maxPage = findPageCount(buffer);
-        vector<offer> offers = getOffersOnPage(buffer);
+        vector<offer> offers;
+        getOffersOnPage(buffer, &offers);
 
         cout << "items: " << offers.size() << endl;
     }
     if (in.is_open()) {
         in.close();
     }
+
+    return 0;
+}
+
+int parseUrl(const string& startUrl) {
+    CURL *curl;
+    curl_global_init(CURL_GLOBAL_ALL);
+    curl = curl_easy_init();
+    if (!curl) {
+        perror("curl init error");
+        curl_global_cleanup();
+
+        return -1;
+    }
+
+    string buffer;
+    curl_slist *headersList = nullptr;
+    headersList = curl_slist_append(headersList, "Accept: */*");
+    headersList = curl_slist_append(headersList, "Upgrade-Insecure-Requests: 1");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT,
+                     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_5_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4324.96 Safari/535.36");
+    curl_easy_setopt(curl, CURLOPT_URL, startUrl.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, callbackWriteBufer);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
+    curl_easy_setopt(curl, CURLOPT_COOKIEJAR, "cookie.txt");
+    curl_easy_setopt(curl, CURLOPT_COOKIEFILE, "");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headersList);
+    curl_easy_setopt(curl, CURLOPT_PROXY, "http://154.16.202.22:8080/");
+
+    CURLcode result = curl_easy_perform(curl);
+
+    if (result != CURLE_OK) {
+        curl_slist_free_all(headersList);
+        curl_easy_cleanup(curl);
+        curl_global_cleanup();
+
+        return -1;
+    }
+
+    size_t posStart = buffer.find("data-marker=\"item\"");
+    size_t posEnd = buffer.find("Рекомендованные объявления");
+    buffer = buffer.substr(posStart, buffer.length() - (posStart + posEnd));
+
+    const page maxPage = findPageCount(buffer);
+    vector<offer> offers;
+    getOffersOnPage(buffer, &offers);
+    string outFilename;
+
+    FILE *page;
+    outFilename = "page_1.log";
+    fopen_s(&page, outFilename.c_str(), "wb");
+    fwrite(buffer.c_str(), 1, buffer.length(), page);
+    fclose(page);
+
+    if (maxPage.pageNum > 1) {
+        curl_easy_setopt(curl, CURLOPT_COOKIEFILE, "cookie.txt");
+        string currentUrl;
+        for (int pageNum = 2; pageNum <= maxPage.pageNum; ++pageNum) {
+            buffer.clear();
+            currentUrl = startUrl + "?p=" + to_string(pageNum);
+            curl_easy_setopt(curl, CURLOPT_URL, currentUrl.c_str());
+
+            result = curl_easy_perform(curl);
+
+            if (result != CURLE_OK) {
+                cout << "error curl" << endl;
+                return -1;
+            } else {
+                posStart = buffer.find("data-marker=\"item\"");
+                posEnd = buffer.find("pagination-button/prev");
+                buffer = buffer.substr(posStart, buffer.length() - (posStart + posEnd));
+
+                outFilename = "page_" + to_string(pageNum) + ".log";
+                fopen_s(&page, outFilename.c_str(), "wb");
+                fwrite(buffer.c_str(), 1, buffer.length(), page);
+                fclose(page);
+
+                getOffersOnPage(buffer, &offers);
+
+            }
+        }
+    }
+
+    cout << "Объявлений получено: " << offers.size() << endl;
+
+    curl_slist_free_all(headersList);
+    curl_easy_cleanup(curl);
+    curl_global_cleanup();
+    return 0;
+}
+
+int parseLocalFiles() {
+
+    return 0;
+}
+
+int main(int argc, char* argv[]) {
+#ifdef WIN32
+    SetConsoleOutputCP(CP_UTF8);
+#endif
+
+    WORK_TYPES work = TEST;
+
+    if (argc > 1) {
+        if (strncmp(argv[1], "--getAll", 8) == 0) {
+            work = PARSE_URL;
+        }
+        if (strncmp(argv[1], "--parseLocal", 12) == 0) {
+            work = PARSE_LOCAL;
+        }
+    }
+
+    switch (work) {
+        case TEST: {
+            cout << "Тест" << endl;
+            testParsing();
+            break;
+        }
+        case PARSE_URL: {
+            cout << "Получаю все объявления" << endl;
+            parseUrl(argv[2]);
+            break;
+        }
+        case PARSE_LOCAL: {
+            cout << "Тест локальных объявлений" << endl;
+            parseLocalFiles();
+            break;
+        }
+    }
+
     return 0;
 }
