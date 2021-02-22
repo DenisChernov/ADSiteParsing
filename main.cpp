@@ -358,6 +358,26 @@ int parseUrl(const string& startUrl) {
 }
 
 int parseLocalFiles() {
+    vector<offer> offers;
+
+    for (int pageNum = 1; ; ++pageNum) {
+        ifstream in("page_" + to_string(pageNum), ios::binary);
+        if (in.is_open()) {
+            int size = in.seekg(0, ios::end).tellg();
+            in.seekg(0);
+            char *buf = new char[size + 1];
+            in.read(buf, size);
+            buf[size] = 0;
+            string buffer = buf;
+
+            getOffersOnPage(buffer, &offers);
+            in.close();
+        } else {
+            break;
+        }
+    }
+
+    cout << "total: " << offers.size() << endl;
 
     return 0;
 }
