@@ -239,7 +239,11 @@ int testParsing() {
         buffer = buffer.substr(posStart, buffer.length() - (posStart + posEnd));
 
         FILE *page;
+#ifdef WIN32
         fopen_s(&page, "nedvizhimost.log", "wb");
+#else
+        page = fopen64("nedvizhimost.log", "wb");
+#endif
         fwrite(buffer.c_str(), 1, buffer.length(), page);
         fclose(page);
 
@@ -316,7 +320,11 @@ int parseUrl(const string& startUrl) {
 
     FILE *page;
     outFilename = "page_1.log";
+#ifdef WIN32
     fopen_s(&page, outFilename.c_str(), "wb");
+#else
+    page = fopen64(outFilename.c_str(), "wb");
+#endif
     fwrite(buffer.c_str(), 1, buffer.length(), page);
     fclose(page);
 
@@ -339,7 +347,11 @@ int parseUrl(const string& startUrl) {
                 buffer = buffer.substr(posStart, buffer.length() - (posStart + posEnd));
 
                 outFilename = "page_" + to_string(pageNum) + ".log";
+#ifdef WIN32
                 fopen_s(&page, outFilename.c_str(), "wb");
+#else
+                page = fopen64(outFilename.c_str(), "wb");
+#endif
                 fwrite(buffer.c_str(), 1, buffer.length(), page);
                 fclose(page);
 
@@ -392,8 +404,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         if (strncmp(argv[1], "--getAll", 8) == 0) {
             work = PARSE_URL;
-        }
-        if (strncmp(argv[1], "--parseLocal", 12) == 0) {
+        } else if (strncmp(argv[1], "--parseLocal", 12) == 0) {
             work = PARSE_LOCAL;
         }
     }
